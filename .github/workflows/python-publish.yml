@@ -8,17 +8,16 @@
 
 name: Upload Python Package
 
-on:
-  release:
-    types: [published]
+on: [push, pull_request]
 
 permissions:
   contents: read
 
 jobs:
   deploy:
-
+    name: Publish on PyPI
     runs-on: ubuntu-latest
+    if: startsWith(github.event.ref, 'refs/tags/v')
 
     steps:
     - uses: actions/checkout@v4
