@@ -3,6 +3,26 @@ from typing import List
 import rioxarray
 import duckdb
 
+SPATIAL_UPSAMPLE = """
+WITH RECURSIVE data AS (
+    SELECT y, x, {columns} FROM {function_name}({resolution}) 
+),
+generate_x(x) AS (
+    SELECT min(x) FROM data
+    UNION ALL
+    SELECT x + {resolution} FROM generate_x WHERE x + {resolution} <= (SELECT max(x) FROM data)
+),
+generate_y(y) AS (
+    SELECT min(y) FROM data
+    UNION ALL
+    SELECT y + {resolution} FROM generate_y WHERE y + {resolution} <= (SELECT max(y) FROM data)
+),
+pairs as (
+    SELECT generate_y.y AS y, generate_x.x AS x FROM generate_y, generate_x
+)
+SELECT pairs.y, pairs.x, {columns} FROM pairs LEFT JOIN data ON pairs.y=data.y AND pairs.x=data.x
+ORDER BY pairs.y, pairs.x ASC;
+"""
 
 def spatial(resolution: int, db_path: str, function_name: str, limit: int | None = None, columns: str | List[str] = 'mean', long_format: bool = False):
     """
@@ -26,15 +46,17 @@ def spatial(resolution: int, db_path: str, function_name: str, limit: int | None
         columns = [columns]
 
     # build the query
-    sql = f"SELECT y, x, {','.join(columns)} FROM {function_name}({resolution})"
-    if limit is not None:
-        sql += f" LIMIT {limit}"
-    sql += ";"
+    # sql = f"SELECT y, x, {','.join(columns)} FROM {function_name}({resolution})"
+    # if limit is not None:
+    #     sql += f" LIMIT {limit}"
+    # sql += ";"
+    sql = SPATIAL_UPSAMPLE.format(resolution=resolution, columns=','.join(columns), function_name=function_name)
 
     # execute the query
     with duckdb.connect(db_path, read_only=True) as duck:
         duck.install_extension('spatial')
         duck.load_extension('spatial')
+        #duck.execute("SET threads TO ")
         df = duck.execute(sql).df()
     
     if long_format:
